@@ -1,4 +1,5 @@
 use pin_project_lite::pin_project;
+use sled::transaction::{ConflictableTransactionResult, TransactionResult};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -6,7 +7,7 @@ use std::task::{Context, Poll};
 
 use sled::Transactional;
 
-use crate::{Error, Key, Raw, Transaction, TransactionError, Value};
+use crate::{Error, Key, Raw, Transaction, Value};
 
 /// Provides typed access to the key/value store
 #[derive(Clone)]
@@ -256,24 +257,14 @@ impl<'a, K: Key<'a>, V: Value> Bucket<'a, K, V> {
     }
 
     /// Execute a transaction
-    pub fn transaction<
-        A,
-        E: From<sled::Error>,
-        F: Fn(Transaction<K, V>) -> Result<A, TransactionError<E>>,
-    >(
+    pub fn transaction<A, E, F: Fn(Transaction<K, V>) -> ConflictableTransactionResult<A, E>>(
         &self,
         f: F,
-    ) -> Result<A, E> {
-        let result = self.0.transaction(|t| {
+    ) -> TransactionResult<A, E> {
+        self.0.transaction(|t| {
             let txn = Transaction::new(t);
             f(txn)
-        });
-
-        match result {
-            Ok(x) => Ok(x),
-            Err(sled::transaction::TransactionError::Abort(x)) => Err(x),
-            Err(sled::transaction::TransactionError::Storage(e)) => Err(e.into()),
-        }
+        })
     }
 
     /// Create a transaction with access to two buckets
@@ -281,24 +272,18 @@ impl<'a, K: Key<'a>, V: Value> Bucket<'a, K, V> {
         A,
         T: Key<'a>,
         U: Value,
-        E: From<sled::Error>,
-        F: Fn(Transaction<K, V>, Transaction<T, U>) -> Result<A, TransactionError<E>>,
+        E,
+        F: Fn(Transaction<K, V>, Transaction<T, U>) -> ConflictableTransactionResult<A, E>,
     >(
         &self,
         other: &Bucket<'a, T, U>,
         f: F,
-    ) -> Result<A, E> {
-        let result = (&self.0, &other.0).transaction(|(a, b)| {
+    ) -> TransactionResult<A, E> {
+        (&self.0, &other.0).transaction(|(a, b)| {
             let a = Transaction::new(a);
             let b = Transaction::new(b);
             f(a, b)
-        });
-
-        match result {
-            Ok(x) => Ok(x),
-            Err(sled::transaction::TransactionError::Abort(x)) => Err(x),
-            Err(sled::transaction::TransactionError::Storage(e)) => Err(e.into()),
-        }
+        })
     }
 
     /// Create a transaction with access to three buckets
@@ -308,30 +293,24 @@ impl<'a, K: Key<'a>, V: Value> Bucket<'a, K, V> {
         U: Value,
         X: Key<'a>,
         Y: Value,
-        E: From<sled::Error>,
+        E,
         F: Fn(
             Transaction<K, V>,
             Transaction<T, U>,
             Transaction<X, Y>,
-        ) -> Result<A, TransactionError<E>>,
+        ) -> ConflictableTransactionResult<A, E>,
     >(
         &self,
         other: &Bucket<'a, T, U>,
         other1: &Bucket<'a, X, Y>,
         f: F,
-    ) -> Result<A, E> {
-        let result = (&self.0, &other.0, &other1.0).transaction(|(a, b, c)| {
+    ) -> TransactionResult<A, E> {
+        (&self.0, &other.0, &other1.0).transaction(|(a, b, c)| {
             let a = Transaction::new(a);
             let b = Transaction::new(b);
             let c = Transaction::new(c);
             f(a, b, c)
-        });
-
-        match result {
-            Ok(x) => Ok(x),
-            Err(sled::transaction::TransactionError::Abort(x)) => Err(x),
-            Err(sled::transaction::TransactionError::Storage(e)) => Err(e.into()),
-        }
+        })
     }
 
     /// Get previous key and value in order, if one exists
