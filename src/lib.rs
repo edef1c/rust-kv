@@ -89,13 +89,8 @@ pub use config::Config;
 pub use error::Error;
 pub use key::{Integer, Key};
 pub use store::Store;
-pub use transaction::{Transaction, TransactionError};
+pub use transaction::Transaction;
 pub use value::{Raw, Value};
-
-/// Abort a transaction
-pub fn abort<E>(x: E) -> TransactionError<E> {
-    TransactionError::Abort(x)
-}
 
 #[cfg(test)]
 mod tests;
